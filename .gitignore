@@ -1,0 +1,8 @@
+__pycache__/**
+data/**
+attention.py
+decoder.py
+greedyDecoder.py
+greedyDecoderScripted.py
+train.py
+script.py
