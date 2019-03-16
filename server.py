@@ -1,5 +1,5 @@
 # Packages
-from bottle import route, run
+from bottle import route, run, request,post
 import os
 
 # Local files
@@ -8,12 +8,14 @@ from voc import *
 from model import *
 from hyperparameters import *
 from predict import *
+from json_encoder import *
 
-@route('/conversation/<input_line>')
-def index(input_line):
-    return converse(input_line, None, None, chat, voc)
+@post('/conversation')
+def index():
+	sentence = request.forms.get('sentence')
+	return encode(converse(sentence, None, None, chat, voc))
 
 if os.environ.get('APP_LOCATION') == 'heroku':
-    run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+	run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 else:
-    run(host='localhost', port=8080, debug=True)
+	run(host='localhost', port=8080, debug=True)
