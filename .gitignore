@@ -1,11 +1,5 @@
 __pycache__/**
-data/**
-attention.py
-decoder.py
-greedyDecoder.py
-greedyDecoderScripted.py
-train.py
-script.py
+models/**
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
