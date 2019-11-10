@@ -120,3 +120,7 @@ class DialoGPT:
         for _ in range(times):
             res += '{}. '.format(self.generate())
         return res
+
+    def SaveModelsToOnnx(self, model_path: str='./'):
+        self.tokenizer.save_pretrained(model_path)
+        # torch.onnx.export(model, dummy_input, "alexnet.onnx", verbose=True)
