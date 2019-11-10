@@ -46,6 +46,7 @@ class DialoGPT:
         self.model.load_state_dict(weights)
         self.model.eval()
         self.model.to(self.device)
+        self.logger.info('Model initialized successfully!')
         self.logger.end_section()
         return True
 

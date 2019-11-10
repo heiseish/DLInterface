@@ -1,0 +1,28 @@
+syntax = "proto3";
+// import "google/protobuf/timestamp.proto";
+
+option objc_class_prefix = "RTG";
+
+package ImageClassificationServiceRPC;
+
+service ImageClassificationService {
+	rpc RecognizeImage (ImageRequest) returns (ImageResponse);
+}
+
+message ImageRequest {
+	string trans_id = 1;
+	string image = 2; // base64 image
+	// google.protobuf.Timestamp time_name = 3;
+}
+
+message ImageResponse {
+	string trans_id = 1;
+	enum State {
+		SUCCESS = 0;
+		MODEL_ERR = 1;
+		UNKNOWN = 2;
+	}
+	State state = 2;
+	string text = 3;
+	// google.protobuf.Timestamp time_name = 4;
+}

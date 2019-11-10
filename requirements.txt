@@ -1,3 +1,5 @@
 torch
 transformers
 bottle
+grpcio
+grpcio-tools
