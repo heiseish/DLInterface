@@ -11,4 +11,5 @@ if __name__ == '__main__':
     if not service.Initialize():
         logger.error('Failed to load model')
         exit(1)
+    
     service.StartServer(int(os.environ.get("PORT", 8080)))

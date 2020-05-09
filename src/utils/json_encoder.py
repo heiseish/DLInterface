@@ -1,9 +1,9 @@
 import json
 import numpy
 
-__all__ = [
-    'json_encode'
-]
+__all__ = ['json_encode']
+
+
 def json_encode(data):
     class MyEncoder(json.JSONEncoder):
         def default(self, obj):

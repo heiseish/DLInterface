@@ -1,39 +1,63 @@
+# distutils: language=c++
+# cython: language_level=3
+
 import os
 import torch
 import torch.nn.functional as F
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, GPT2Config
 from ..utils import get_logger
 
+import cython
+from libc.stdlib cimport free, malloc
+from libc.string cimport strcpy, strlen
+from libcpp cimport bool
+from libcpp.vector cimport vector
+from libcpp.string cimport string
+
 __all__ = [
     'DialoGPT'
 ]
-class DialoGPT:
-    end_token = 50256
-    def __init__(self, network_path: str='', device='cpu'):
+
+cdef class BaseDialoGPT:
+    cdef string network_path
+    cdef string device
+    cdef int end_token 
+    cdef vector[int] conditioned_tokens
+    cdef vector[int] generated_tokens
+
+    @cython.wraparound(False)
+    @cython.nonecheck(False)
+    def __cinit__(self, string network_path = b'', string device = b'cpu') :
         ''' Init dialoGPY
         Args:
         - network_path (str) path to the pkl file
         - device (str) one of cpu | cuda
         '''
         self.network_path = network_path
-        self.logger = get_logger()
         self.device = device
+        self.end_token = 50256
+
+        self.logger = get_logger()
         self.tokenizer = None
         self.model = None
-        self.conditioned_tokens = []
-        self.generated_tokens = []
+        
+
+    def __dealloc__(self):
+        pass
 
     def Initialize(self):
-        self.logger.title('Initializing DialoGPT')
+        ''' Load model and tokenizer for gpt model
+        '''
         if not os.path.isfile(self.network_path):
             self.logger.error('Network path doesnt exist')
             return False
+        cdef dict weights
 
         self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
         try:
-            weights = torch.load(self.network_path)
+            weights = torch.load(self.network_path.decode())
         except Exception as e:
-            self.logger.error('Failed to load network')
+            self.logger.error('Failed to load network: {}'.format(e))
             return False
 
         medium_config = GPT2Config(n_embd=1024,n_layer=24,n_head=16)
@@ -45,16 +69,22 @@ class DialoGPT:
 
         self.model.load_state_dict(weights)
         self.model.eval()
-        self.model.to(self.device)
+        self.model.to(self.device.decode())
         self.logger.info('Model initialized successfully!')
-        self.logger.end_section()
         return True
 
-    def reinput(self, text: str):
-        self.conditioned_tokens = self.tokenizer.encode(text) + [DialoGPT.end_token]
+    cdef void reinput(self, str text) except *:
+        cdef vector[int] encoded_res
+
+        self.conditioned_tokens.clear()
+        encoded_res = self.tokenizer.encode(text)
+        self.conditioned_tokens.insert(self.conditioned_tokens.begin(),
+            encoded_res.begin(), encoded_res.end())
+        self.conditioned_tokens.push_back(self.end_token)
 
 
-    def top_p_filtering(self, logits: torch.Tensor, top_p:float = 0.9, filter_value: float =-float('Inf')):
+    cdef top_p_filtering(self, logits: torch.Tensor, 
+        double top_p = 0.9, double filter_value =-float('Inf')):
         """
         Credit: https://gist.github.com/thomwolf/1a5a29f6962089e871b94cbd09daf317
         """
@@ -71,9 +101,13 @@ class DialoGPT:
         return logits
 
 
-    def recalc(self):
+    cdef int recalc(self) except *:
         # for segment display purpose, keep 2 sets of tokens
-        indexed_tokens = self.conditioned_tokens + self.generated_tokens
+        cdef vector[int] indexed_tokens
+        next_token: torch.Tensor
+
+        indexed_tokens.insert(indexed_tokens.end(), self.conditioned_tokens.begin(), self.conditioned_tokens.end())
+        indexed_tokens.insert(indexed_tokens.end(), self.generated_tokens.begin(), self.generated_tokens.end())
         tokens_tensor = torch.tensor([indexed_tokens])
         tokens_tensor = tokens_tensor.to(self.device)
         with torch.no_grad():
@@ -83,28 +117,28 @@ class DialoGPT:
         filtered_logits = self.top_p_filtering(logits)
         probabilities = F.softmax(filtered_logits, dim=-1)
         next_token = torch.multinomial(probabilities, 1)
-        self.generated_tokens.append(next_token.item())
+        self.generated_tokens.push_back(next_token.item())
         return next_token.item()
 
-    def generate(self):
+    cdef str generate(self):
         ''' generate a response using `self.conditioned_tokens` and `self.generated_token`
         '''
-        response = ''
+        cdef str response
+        cdef int result
         while True:
             result = self.recalc()
             if result == 50256:
                 # end-of-text : 50256
                 # use this special token to split segments
-                response =  self.tokenizer.decode(self.generated_tokens[:-1])
-                self.conditioned_tokens += self.generated_tokens
-                self.generated_tokens = []
+                response = self.tokenizer.decode(self.generated_tokens[:-1])
+                self.conditioned_tokens.insert(self.conditioned_tokens.end(), self.generated_tokens.begin(), self.generated_tokens.end())
+                self.generated_tokens.clear()
                 break
         return response
     
     def GetNext(self) -> str:
         ''' Keep generating for current `self.conditioned_tokens` and `self.generated_token`
         '''
-        self.logger.title('Getting next sentence')
         return self.generate()
 
     def GenerateFor(self, text:str, times:int = 2):
@@ -113,14 +147,11 @@ class DialoGPT:
         - text (str) text to start generation
         - times (str) number of times to try to generate
         '''
-        self.logger.title('Generating sequence')
-        self.logger.info('Generate sequence for {}'.format(text))
         self.reinput(text)
-        res = ''
+        cdef str res = ''
         for _ in range(times):
             res += '{}. '.format(self.generate())
         return res
 
-    def SaveModelsToOnnx(self, model_path: str='./'):
-        self.tokenizer.save_pretrained(model_path)
-        # torch.onnx.export(model, dummy_input, "alexnet.onnx", verbose=True)
+class DialoGPT(BaseDialoGPT):
+    pass

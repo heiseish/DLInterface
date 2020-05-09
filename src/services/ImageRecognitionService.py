@@ -2,6 +2,7 @@ from ..protobuf import add_ImageClassificationServiceServicer_to_server, ImageCl
     ImageResponse
 from .BaseService import *
 
+
 class ImageRecognitionService(ImageClassificationServiceServicer, BaseService):
     ''' Provides methods that implement functionality of route guide server.'''
     def __init__(self, model_path: str, max_workers: int = 1):

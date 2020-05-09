@@ -3,3 +3,4 @@ transformers
 bottle
 grpcio
 grpcio-tools
+Cython
