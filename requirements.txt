@@ -4,3 +4,5 @@ bottle
 grpcio
 grpcio-tools
 Cython
+pyparsing
+gTTS

@@ -1,10 +1,5 @@
-from distutils.core import setup
-from distutils.extension import Extension
-from Cython.Build import cythonize
-from Cython.Distutils import build_ext
-import numpy
-from distutils.command.sdist import sdist as _sdist
-
+from setuptools import setup, find_packages, Extension
+from Cython.Build import build_ext
 
 cmdclass = {}
 cmdclass.update({'build_ext': build_ext})
@@ -19,28 +14,26 @@ extensions = [
     Extension(
         "src.model.DialoGPT",
         sources=["src/model/DialoGPT.pyx"],
-        extra_compile_args=["-O3"],
+        extra_compile_args=["-O3", "-std=c++17"],
         language="c++"
     ),
     Extension(
-        "src.utils.context",
-        sources=["src/utils/context.pyx"],
+        "src.utils.color",
+        sources=["src/utils/color.pyx"],
         extra_compile_args=["-O3"],
         language="c++"
     ),
 ]
 
-class sdist(_sdist):
-    def run(self):
-        # Make sure the compiled Cython files in the distribution are up-to-date
-        cythonize(extensions)
-        _sdist.run(self)
-
-cmdclass['sdist'] = sdist
-
 setup(
     name='DawnPy',
     cmdclass=cmdclass,
+    packages=find_packages(),
+    include_package_data=True,
+    package_data = { 
+        'src.utils.logger': ['src/utils/logger.pxd'],
+        'src.utils.color': ['src/utils/color.pxd'],
+    },
     ext_modules=extensions,
 )
 

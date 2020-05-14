@@ -1,5 +1,5 @@
-#cython: language_level=3
-''' Logger class'''
+#cython: language_level=3, c_string_type=unicode, c_string_encoding=utf8, boundscheck=False, cdivision=True, wraparound=False
+# distutils: language=c++
 import logging
 import sys
 import os
@@ -9,19 +9,17 @@ import pyparsing
 from libcpp cimport bool as bool_t
 from libcpp.vector cimport vector
 from libcpp.string cimport string
-from typing import List
-
-from .color import ColorSequence
-from .context import get_context
+from .color cimport ColorSequence
 
 __all__ = ['init_logger', 'get_logger', 'GenericLogger', 'ResultTable']
 
+cdef ColorSequence _tempCS = ColorSequence()
 cdef dict _COLORS = {
-    'WARNING': ColorSequence.YELLOW,
-    'INFO': ColorSequence.GREEN,
-    'DEBUG': ColorSequence.BLUE,
-    'CRITICAL': ColorSequence.YELLOW,
-    'ERROR': ColorSequence.RED
+    'WARNING': _tempCS.YELLOW,
+    'INFO': _tempCS.GREEN,
+    'DEBUG': _tempCS.BLUE,
+    'CRITICAL': _tempCS.YELLOW,
+    'ERROR': _tempCS.RED
 }
 
 class ColoredFormatter(logging.Formatter):
@@ -29,18 +27,14 @@ class ColoredFormatter(logging.Formatter):
         logging.Formatter.__init__(self, msg)
         self.use_color = use_color
 
-    def format(self, record):
+    def format(self, object record):
         raw_levelname = record.levelname
         record.levelname = record.levelname.center(7, ' ')
         if self.use_color and raw_levelname in _COLORS:
-            record.levelname = ColorSequence.COLOR_SEQ.format(_COLORS[raw_levelname]) + '[ '+ record.levelname + ' ]' + \
-                ColorSequence.RESET_SEQ
-            record.filename = ColorSequence.COLOR_SEQ.format(
-                ColorSequence.CYAN
-            ) + record.filename + ColorSequence.RESET_SEQ
-            record.name = ColorSequence.COLOR_SEQ.format(
-                ColorSequence.MAGENTA
-            ) + record.name + ColorSequence.RESET_SEQ
+            record.levelname = _COLORS[raw_levelname] + '[ '+ record.levelname + ' ]' + \
+                _tempCS.RESET_SEQ
+            record.filename = ColorSequence.color_cyan(record.filename)
+            record.name = ColorSequence.color_magenta(record.name)
         return logging.Formatter.format(self, record)
 
 cdef dict _LOGGERS = {
@@ -59,6 +53,9 @@ class GenericLogger(logging.Logger):
         - level (str) default level for logging. one of WARNING | INFO | DEBUG | CRITICAL | ERROR
         - use_color (bool) Whether this logger should print out color
         '''
+        cdef:
+            str FORMAT
+
         FORMAT = '%(name)s - %(asctime)s - [ %(levelname)s ] - %(filename)s - $BOLD%(lineno)4d:%(funcName)s$RESET: %(message)s'
         if level not in _LOGGERS:
             raise ValueError(
@@ -69,8 +66,8 @@ class GenericLogger(logging.Logger):
         if use_color:
             FORMAT = FORMAT.replace('[', '') \
                 .replace(']', '')
-            FORMAT = FORMAT.replace('$RESET', ColorSequence.RESET_SEQ) \
-                .replace('$BOLD', ColorSequence.BOLD_SEQ)
+            FORMAT = FORMAT.replace('$RESET', _tempCS.RESET_SEQ) \
+                .replace('$BOLD', _tempCS.BOLD_SEQ)
         else:
             FORMAT = FORMAT.replace('$BOLD', '') \
                 .replace('$RESET', '')
@@ -83,7 +80,7 @@ class GenericLogger(logging.Logger):
         self.addHandler(console)
         return
 
-    def get_terminal_width(self) -> int:
+    def get_terminal_width(self):
         ''' Get the width of the console terminal at run time
         '''
         return shutil.get_terminal_size((80, 20)).columns
@@ -120,10 +117,10 @@ class GenericLogger(logging.Logger):
 
 
 # default logger is color
-singletonLogger = GenericLogger('DawnAI', 'ERROR', use_color=True)
+cdef object singletonLogger = GenericLogger('DawnAI', 'ERROR', use_color=True)
 
 
-def init_logger(str name):
+cpdef object init_logger(str name):
     ''' Initialize global logger. Subsequence use of the logger can be retrieved with `get_logger()`
     Args:
     - name (str) name of the logger
@@ -133,16 +130,17 @@ def init_logger(str name):
     Returns:
     - Logger class withe the configs
     '''
+    cdef:
+        string log_level
     global singletonLogger
-    context = get_context()
-    log_level = 'DEBUG' if context.debug else 'INFO'
+    log_level =  b'INFO'
     singletonLogger = GenericLogger(
-        name, log_level, use_color=not context.no_color
+        name, log_level, use_color=True
     )
     return singletonLogger
 
 
-def get_logger():
+cpdef object get_logger():
     ''' Return current logger with current context
     '''
     global singletonLogger
@@ -180,14 +178,14 @@ cdef class ResultTable(object):
     cdef void print_horizontal(self) except *:
         print('-' * (self.terminal_width - self.cols), flush=True)
 
-    def set_headers(self, headers: List[str]):
+    def set_headers(self, list headers):
         assert len(headers) == self.cols, 'len(headers) != self.cols {} vs {}'.format(
                       len(headers), self.cols
                   )
         for header in headers:
             self.headers.push_back(headers.encode())
 
-    def add_row(self, data: List[str]):
+    def add_row(self, list data):
         assert len(data
                   ) == self.cols, ' len(data) != self.cols {} vs {}'.format(
                       len(data), self.cols

@@ -1,6 +1,6 @@
-from ..model import DialoGPT
+from ..model.DialoGPT import DialoGPT
 from ..protobuf import add_Seq2SeqServiceServicer_to_server, Seq2SeqServiceServicer, ConversationResponse
-from ..utils import get_logger
+from ..utils.logger import get_logger
 import grpc
 from concurrent import futures
 
@@ -20,7 +20,7 @@ class Servicer:
         return self.model.Initialize()
 
     def RespondToText(self, request, context):
-        self.logger.info('Generating text for {}'.format(request.trans_id))
+        self.logger.info(f'Generating text for {request.text}')
         return ConversationResponse( \
             trans_id=request.trans_id,
             state=ConversationResponse.State.Value('SUCCESS'), \

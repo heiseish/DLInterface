@@ -1,15 +1,10 @@
+#cython: language_level=3, c_string_type=unicode, c_string_encoding=utf8, boundscheck=False, cdivision=True, wraparound=False
 # distutils: language=c++
-# cython: language_level=3
-
 import os
 import torch
 import torch.nn.functional as F
-from transformers import GPT2Tokenizer, GPT2LMHeadModel, GPT2Config
-from ..utils import get_logger
-
-import cython
-from libc.stdlib cimport free, malloc
-from libc.string cimport strcpy, strlen
+from transformers import AutoTokenizer, AutoModelWithLMHead
+from src.utils.logger import get_logger
 from libcpp cimport bool
 from libcpp.vector cimport vector
 from libcpp.string cimport string
@@ -19,14 +14,16 @@ __all__ = [
 ]
 
 cdef class BaseDialoGPT:
-    cdef string network_path
-    cdef string device
-    cdef int end_token 
-    cdef vector[int] conditioned_tokens
-    cdef vector[int] generated_tokens
+    cdef:
+        string network_path
+        string device
+        # int end_token 
+        vector[int] conditioned_tokens
+        vector[int] generated_tokens
+        object logger
+        object tokenizer
+        object model
 
-    @cython.wraparound(False)
-    @cython.nonecheck(False)
     def __cinit__(self, string network_path = b'', string device = b'cpu') :
         ''' Init dialoGPY
         Args:
@@ -35,8 +32,7 @@ cdef class BaseDialoGPT:
         '''
         self.network_path = network_path
         self.device = device
-        self.end_token = 50256
-
+        # self.end_token = 50256
         self.logger = get_logger()
         self.tokenizer = None
         self.model = None
@@ -45,45 +41,32 @@ cdef class BaseDialoGPT:
     def __dealloc__(self):
         pass
 
-    def Initialize(self):
+    cpdef bool Initialize(self) except*:
         ''' Load model and tokenizer for gpt model
         '''
-        if not os.path.isfile(self.network_path):
-            self.logger.error('Network path doesnt exist')
-            return False
-        cdef dict weights
-
-        self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-        try:
-            weights = torch.load(self.network_path.decode())
-        except Exception as e:
-            self.logger.error('Failed to load network: {}'.format(e))
-            return False
-
-        medium_config = GPT2Config(n_embd=1024,n_layer=24,n_head=16)
-        self.model = GPT2LMHeadModel(medium_config)
-
-        # fix misused key value
-        weights["lm_head.weight"] = weights["lm_head.decoder.weight"]
-        weights.pop("lm_head.decoder.weight",None)
-
-        self.model.load_state_dict(weights)
+        cdef:
+            dict weights
+        os.makedirs(self.network_path, exist_ok=True)
+        self.tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-large", cache_dir=self.network_path)
+        self.model = AutoModelWithLMHead.from_pretrained("microsoft/DialoGPT-large", cache_dir=self.network_path)
+        # Set the model in evaluation mode to deactivate the DropOut modules
+        # This is IMPORTANT to have reproducible results during evaluation!
         self.model.eval()
-        self.model.to(self.device.decode())
+        self.model.to(self.device)
         self.logger.info('Model initialized successfully!')
         return True
 
-    cdef void reinput(self, str text) except *:
+    cpdef void reinput(self, string text):
         cdef vector[int] encoded_res
 
         self.conditioned_tokens.clear()
         encoded_res = self.tokenizer.encode(text)
-        self.conditioned_tokens.insert(self.conditioned_tokens.begin(),
+        self.conditioned_tokens.insert(self.conditioned_tokens.begin(), 
             encoded_res.begin(), encoded_res.end())
-        self.conditioned_tokens.push_back(self.end_token)
+        self.conditioned_tokens.push_back(int(self.tokenizer.eos_token_id))
 
 
-    cdef top_p_filtering(self, logits: torch.Tensor, 
+    cdef object top_p_filtering(self, object logits, 
         double top_p = 0.9, double filter_value =-float('Inf')):
         """
         Credit: https://gist.github.com/thomwolf/1a5a29f6962089e871b94cbd09daf317
@@ -103,7 +86,8 @@ cdef class BaseDialoGPT:
 
     cdef int recalc(self) except *:
         # for segment display purpose, keep 2 sets of tokens
-        cdef vector[int] indexed_tokens
+        cdef:
+            vector[int] indexed_tokens
         next_token: torch.Tensor
 
         indexed_tokens.insert(indexed_tokens.end(), self.conditioned_tokens.begin(), self.conditioned_tokens.end())
@@ -120,14 +104,15 @@ cdef class BaseDialoGPT:
         self.generated_tokens.push_back(next_token.item())
         return next_token.item()
 
-    cdef str generate(self):
+    cdef string generate(self):
         ''' generate a response using `self.conditioned_tokens` and `self.generated_token`
         '''
-        cdef str response
-        cdef int result
+        cdef:
+            string response
+            int result
         while True:
             result = self.recalc()
-            if result == 50256:
+            if result == int(self.tokenizer.eos_token_id):
                 # end-of-text : 50256
                 # use this special token to split segments
                 response = self.tokenizer.decode(self.generated_tokens[:-1])
@@ -136,22 +121,40 @@ cdef class BaseDialoGPT:
                 break
         return response
     
-    def GetNext(self) -> str:
+    cpdef string GetNext(self):
         ''' Keep generating for current `self.conditioned_tokens` and `self.generated_token`
         '''
         return self.generate()
 
-    def GenerateFor(self, text:str, times:int = 2):
+    cpdef string GenerateFor(self, string text, int times = 2):
         ''' Generate a sequence in response to @code `text`
         Args:
         - text (str) text to start generation
         - times (str) number of times to try to generate
         '''
+        cdef:
+            string res = b''
+            string nxt
+
         self.reinput(text)
-        cdef str res = ''
         for _ in range(times):
-            res += '{}. '.format(self.generate())
+            nxt = f'{self.generate()}\n'
+            res.append(nxt)
         return res
 
 class DialoGPT(BaseDialoGPT):
     pass
+
+    # Let's chat for 5 lines
+# for step in range(5):
+    # # encode the new user input, add the eos_token and return a tensor in Pytorch
+    # new_user_input_ids = tokenizer.encode(input(">> User:") + tokenizer.eos_token, return_tensors='pt')
+
+    # # append the new user input tokens to the chat history
+    # bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1) if step > 0 else new_user_input_ids
+
+    # # generated a response while limiting the total chat history to 1000 tokens, 
+    # chat_history_ids = model.generate(bot_input_ids, max_length=1000, pad_token_id=tokenizer.eos_token_id)
+
+    # # pretty print last ouput tokens from bot
+    # print("DialoGPT: {}".format(tokenizer.decode(chat_history_ids[:, bot_input_ids.shape[-1]:][0], skip_special_tokens=True)))
