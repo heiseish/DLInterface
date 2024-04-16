@@ -1,20 +1,22 @@
 from ..model.DialoGPT import DialoGPT
-from ..protobuf import add_Seq2SeqServiceServicer_to_server, Seq2SeqServiceServicer, ConversationResponse
+from ..protobuf import add_PyRPCServiceServicer_to_server, PyRPCServiceServicer, ConversationResponse, TTSOutput
 from ..utils.logger import get_logger
 import grpc
 from concurrent import futures
+from gtts import gTTS
+from io import BytesIO
 
-__all__ = ['ConverseService']
+__all__ = ['PyRPCService']
 
 
-class Servicer:
+class Servicer(PyRPCServiceServicer):
     ''' Provides methods that implement functionality of route guide server.'''
     def __init__(
         self,
         model_path: str,
     ):
         self.logger = get_logger()
-        self.model = DialoGPT(model_path)
+        self.model = DialoGPT(model_path, b'cuda')
 
     def Initialize(self):
         return self.model.Initialize()
@@ -26,9 +28,16 @@ class Servicer:
             state=ConversationResponse.State.Value('SUCCESS'), \
             text=self.model.GenerateFor(request.text)
         )
+    
+    def TextToSpeech(self, request, context):
+        self.logger.info(f'Generating speech for {request.text}')
+        mp3_fp = BytesIO()
+        tts = gTTS(request.text, lang=request.lang)
+        tts.write_to_fp(mp3_fp)
+        return TTSOutput(data=mp3_fp.getvalue())
 
 
-class ConverseService(Seq2SeqServiceServicer):
+class PyRPCService:
     def __init__(self, model_path: str, max_workers: int = 1):
         self.logger = get_logger()
         self.servicer = Servicer(model_path)
@@ -45,7 +54,7 @@ class ConverseService(Seq2SeqServiceServicer):
         - service: service to boot up
         - port: port to listen to
         '''
-        add_Seq2SeqServiceServicer_to_server(self.servicer, self.server)
+        add_PyRPCServiceServicer_to_server(self.servicer, self.server)
         self.server.add_insecure_port('[::]:{}'.format(port))
         self.logger.info('Server starting up..')
         self.server.start()

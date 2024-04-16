@@ -1,0 +1,48 @@
+syntax = "proto3";
+option objc_class_prefix = "RTG";
+
+package PyRPC;
+
+service PyRPCService {
+	rpc TextToSpeech (TTSInput) returns (TTSOutput);
+    rpc SpeechToText (STTInput) returns (STTOutput);
+    rpc RespondToText (ConversationInput) returns (ConversationResponse);
+}
+
+message TTSInput {
+	string text = 1;
+	string lang = 2;
+}
+
+message TTSOutput {
+	bytes data = 1;
+}
+
+message STTInput {
+    bytes data = 1;
+}
+
+message STTOutput {
+	string text = 1;
+	string lang = 2;
+}
+
+
+
+message ConversationInput {
+	string trans_id = 1;
+	string text = 2;
+	// google.protobuf.Timestamp time_name = 3;
+}
+
+message ConversationResponse {
+	string trans_id = 1;
+	enum State {
+		SUCCESS = 0;
+		MODEL_ERR = 1;
+		UNKNOWN = 2;
+	}
+	State state = 2;
+	string text = 3;
+	// google.protobuf.Timestamp time_name = 4;
+}
